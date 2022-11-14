@@ -7,7 +7,8 @@ AWSTemplateFormatVersion: 2010-09-09
 
 Resources:
 
-  # First, a VPC:
+  # VPC creation:
+  
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -16,7 +17,8 @@ Resources:
       - Key: Name
         Value:  Vpc
 
-  # Our VPC will need internet access:      
+  # Internet GW creation:
+  
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     DependsOn: VPC
@@ -27,7 +29,8 @@ Resources:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
 
-  # Now some subnets, 2 public and 2 private:
+  # Public Subnet and Private Subnet
+  
   PublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
@@ -46,7 +49,8 @@ Resources:
       - Key: Name
         Value: !Sub ${AWS::StackName}-Private-Subnet
         
-  # Some route tables for our subnets:
+  # Route tables for the subnets:
+  
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -54,7 +58,7 @@ Resources:
       Tags:
       - Key: Name
         Value: Public
-  PublicRoute1:   # Public route table has direct routing to IGW:
+  PublicRoute1:   # Public route table pointing to IGW:
     Type: AWS::EC2::Route
     DependsOn: AttachGateway
     Properties:
@@ -62,7 +66,7 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
       
-  # Here is a private route table:
+  
   PrivateRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -70,7 +74,7 @@ Resources:
       Tags:
       - Key: Name
         Value: Private
-  PrivateRoute1:            # Private route table can access web via NAT (created below)
+  PrivateRoute1:            # Private Rout table to NAT
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref PrivateRouteTable
