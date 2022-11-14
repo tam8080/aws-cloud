@@ -1,0 +1,157 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+# This CloudFormation template deploys a basic VPC / Network.  Specifically:
+# It deploys a VPC with 4 subnets (2 public, 2 private) across 2 Availability Zones
+# A NAT Gateway is used to provide egress for private subnets.
+# The VPC and subnets are exported for use by other stacks.
+
+Resources:
+
+  # First, a VPC:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      Tags:
+      - Key: Name
+        Value:  Vpc
+
+  # Our VPC will need internet access:      
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    DependsOn: VPC
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    # Notice how you can't attach an IGW to a VPC unless both are created:
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Now some subnets, 2 public and 2 private:
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.10.0/24      
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Public-Subnet
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.20.0/24
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Private-Subnet
+        
+  # Some route tables for our subnets:
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Public
+  PublicRoute1:   # Public route table has direct routing to IGW:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      
+  # Here is a private route table:
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Private
+  PrivateRoute1:            # Private route table can access web via NAT (created below)
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      # Route traffic through the NAT Gateway:
+      NatGatewayId: !Ref NATGateway
+
+  # Attach the public subnets to public route tables, 
+  # and attach the private subnets to private route tables:    
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  # A NAT Gateway: 
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId: !GetAtt ElasticIPAddress.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags: 
+      - Key: Name
+        Value: !Sub NAT-${AWS::StackName}
+
+  ElasticIPAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: VPC
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: S3Bucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action: "*"
+            Effect: Allow
+            Resource:
+              - Fn::GetAtt:
+                  - S3Bucket
+                  - Arn
+              - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt:
+                        - S3Bucket
+                        - Arn
+                    - /*
+            Principal:
+              AWS: "*"
+            Condition:
+              StringEquals:
+                s3:DataAccessPointAccount:
+                  Ref: AWS::AccountId
+                  
+  S3AccessPoint:
+    Type: AWS::S3::AccessPoint
+    Properties:
+      Bucket:
+        Ref: S3Bucket
+      Name: my-access-point
+      VpcConfiguration:
+        VpcId:
+          Ref: VPC
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+Outputs:
+  S3AccessPointArn:
+    Value:
+      Ref: S3AccessPoint
+    Description: ARN of the sample Amazon S3 access point.
